@@ -190,7 +190,7 @@ static int downloadThread(unsigned int args, void* arg)
 	curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, asyncUseragent);
 	curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYHOST, 0L);
 	curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0L);
-	curl_easy_setopt(curl_handle, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+	curl_easy_setopt(curl_handle, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_0);
 	curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 10L);
 	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, header_cb);
@@ -203,7 +203,7 @@ static int downloadThread(unsigned int args, void* arg)
 	switch (asyncMode)
 	{
 		case FILE_DOWNLOAD:
-			file = sceIoOpen(asyncDest, SCE_O_WRONLY | SCE_O_CREAT, 0777);
+			file = sceIoOpen(asyncDest, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
 			if (!file)
 			{
 				asyncMode = DOWNLOAD_END;
@@ -223,8 +223,8 @@ static int downloadThread(unsigned int args, void* arg)
 	}
 	struct curl_slist *headerchunk = NULL;
 	headerchunk = curl_slist_append(headerchunk, "Accept: */*");
-	switch (asyncContentType)
-	{	
+	if (asyncMethod == SCE_HTTP_METHOD_POST) switch (asyncContentType)
+	{
 	case JSON:
 		headerchunk = curl_slist_append(headerchunk, "Content-Type: application/json");
 		break;
@@ -232,9 +232,8 @@ static int downloadThread(unsigned int args, void* arg)
 		headerchunk = curl_slist_append(headerchunk, "Content-Type: application/x-www-form-urlencoded");
 		break;
 	}
-	headerchunk = curl_slist_append(headerchunk, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36");
 	sprintf(content_length, "Content-Length: %i", asyncMethod == SCE_HTTP_METHOD_POST && asyncPostdata != NULL ? asyncPostsize : 0);
-	headerchunk = curl_slist_append(headerchunk, content_length);
+	if (strstr(content_length, ": 0") == NULL) headerchunk = curl_slist_append(headerchunk, content_length);
 	headerchunk = curl_slist_append(headerchunk, asyncHeader1);
 	headerchunk = curl_slist_append(headerchunk, asyncHeader2);
 	headerchunk = curl_slist_append(headerchunk, asyncHeader3);
@@ -259,7 +258,7 @@ static int downloadThread(unsigned int args, void* arg)
 		else
 		{
 			asyncStrRes = buffer->ptr;
-			asyncResSize = buffer->length;
+			asyncResSize = buffer->length - 1; // length counts the trailing NUL
 		}
 		delete buffer;
 	}
@@ -642,7 +641,7 @@ static int lua_download(lua_State *L){
 	curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, useragent);
 	curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYHOST, 0L);
 	curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0L);
-	curl_easy_setopt(curl_handle, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+	curl_easy_setopt(curl_handle, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_0);
 	curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 10L);
 	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_TIME, 10L);
@@ -653,8 +652,8 @@ static int lua_download(lua_State *L){
 	curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &fh);
 	struct curl_slist *headerchunk = NULL;
 	headerchunk = curl_slist_append(headerchunk, "Accept: */*");
-	switch (contentType)
-	{	
+	if (method == SCE_HTTP_METHOD_POST) switch (contentType)
+	{
 	case JSON:
 		headerchunk = curl_slist_append(headerchunk, "Content-Type: application/json");
 		break;
@@ -662,10 +661,9 @@ static int lua_download(lua_State *L){
 		headerchunk = curl_slist_append(headerchunk, "Content-Type: application/x-www-form-urlencoded");
 		break;
 	}
-	headerchunk = curl_slist_append(headerchunk, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36");
 	char content_length[32];
 	sprintf(content_length, "Content-Length: %i", method == SCE_HTTP_METHOD_POST && postdata != NULL ? asyncPostsize : 0);
-	headerchunk = curl_slist_append(headerchunk, content_length);
+	if (strstr(content_length, ": 0") == NULL) headerchunk = curl_slist_append(headerchunk, content_length);
 	if (header1)
 		headerchunk = curl_slist_append(headerchunk, header1);
 	if (header2)
@@ -778,7 +776,7 @@ static int lua_string(lua_State *L){
 	curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, useragent);
 	curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYHOST, 0L);
 	curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0L);
-	curl_easy_setopt(curl_handle, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+	curl_easy_setopt(curl_handle, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_0);
 	curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 10L);
 	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_TIME, 10L);
@@ -789,8 +787,8 @@ static int lua_string(lua_State *L){
 	curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, buffer);
 	struct curl_slist *headerchunk = NULL;
 	headerchunk = curl_slist_append(headerchunk, "Accept: */*");
-	switch (contentType)
-	{	
+	if (method == SCE_HTTP_METHOD_POST) switch (contentType)
+	{
 	case JSON:
 		headerchunk = curl_slist_append(headerchunk, "Content-Type: application/json");
 		break;
@@ -798,10 +796,9 @@ static int lua_string(lua_State *L){
 		headerchunk = curl_slist_append(headerchunk, "Content-Type: application/x-www-form-urlencoded");
 		break;
 	}
-	headerchunk = curl_slist_append(headerchunk, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36");
 	char content_length[32];
 	sprintf(content_length, "Content-Length: %i", method == SCE_HTTP_METHOD_POST && postdata != NULL ? asyncPostsize : 0);
-	headerchunk = curl_slist_append(headerchunk, content_length);
+	if (strstr(content_length, ": 0") == NULL) headerchunk = curl_slist_append(headerchunk, content_length);
 	if (header1)
 		headerchunk = curl_slist_append(headerchunk, header1);
 	if (header2)
