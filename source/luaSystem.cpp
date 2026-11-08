@@ -1296,12 +1296,28 @@ static int lua_getpicformat(lua_State *L){
 	} else if (format == PIC_FORMAT_GIF) {
 		lua_pushstring(L, "gif");
 		return 1;
+	} else if (format == PIC_FORMAT_WEBP) {
+		lua_pushstring(L, "webp");
+		return 1;
 	} else {
 		return 0;
 	}
 }
 
 //Register our System Functions
+extern "C" int otakio_convert_image(const char *src, const char *dst, int to, int quality);
+
+// Otakio: System.convertImage(src, dst, "jpg"|"png"|"webp"[, quality]) -> boolean (JPEG/PNG/WebP in, full resolution)
+static int lua_convertimage(lua_State *L){
+	const char *src = luaL_checkstring(L, 1);
+	const char *dst = luaL_checkstring(L, 2);
+	const char *fmt = luaL_optstring(L, 3, "jpg");
+	int quality = luaL_optinteger(L, 4, 92);
+	int to = strcmp(fmt, "png") == 0 ? 1 : strcmp(fmt, "webp") == 0 ? 2 : 0;
+	lua_pushboolean(L, otakio_convert_image(src, dst, to, quality));
+	return 1;
+}
+
 static const luaL_Reg System_functions[] = {
   {"statFile",                  lua_statfile},
   {"statOpenedFile",            lua_statfilehandle},
@@ -1358,6 +1374,7 @@ static const luaL_Reg System_functions[] = {
   {"extractFromZip",            lua_getfilefromzip},
   {"extractFromZipAsync",       lua_getfilefromzipasync},
   {"takeScreenshot",            lua_screenshot},
+  {"convertImage",              lua_convertimage},
   {"executeUri",                lua_executeuri},
   {"reboot",                    lua_reboot},  
   {"isSafeMode",                lua_issafe},

@@ -1071,6 +1071,13 @@ void get_GIF_resolution(const char *filename, int *dest_width, int *dest_height)
 
 void get_PIC_resolution(const char *filename, int *dest_width, int *dest_height)
 {
+	*dest_width = -1;
+	*dest_height = -1;
+	if (is_WEBP_file(filename))
+	{
+		get_WEBP_resolution(filename, dest_width, dest_height);
+		return;
+	}
 	SceUID file = sceIoOpen(filename, SCE_O_RDONLY, 0777);
 	uint16_t magic;
 	sceIoRead(file, &magic, 2);
@@ -1088,6 +1095,8 @@ void get_PIC_resolution(const char *filename, int *dest_width, int *dest_height)
 
 vita2d_texture *load_PIC_file(const char *filename, int x, int y, int width, int height)
 {
+	if (is_WEBP_file(filename))
+		return load_WEBP_file_part(filename, x, y, width, height);
 	SceUID file = sceIoOpen(filename, SCE_O_RDONLY, 0777);
 	uint16_t magic;
 	sceIoRead(file, &magic, 2);
@@ -1105,6 +1114,8 @@ vita2d_texture *load_PIC_file(const char *filename, int x, int y, int width, int
 
 vita2d_texture *load_PIC_file_downscaled(const char *filename, int level)
 {
+	if (is_WEBP_file(filename))
+		return load_WEBP_file_downscaled(filename, level);
 	SceUID file = sceIoOpen(filename, SCE_O_RDONLY, 0777);
 	uint16_t magic;
 	sceIoRead(file, &magic, 2);
@@ -1122,6 +1133,8 @@ vita2d_texture *load_PIC_file_downscaled(const char *filename, int level)
 
 pic_format get_PIC_format(const char *filename)
 {
+	if (is_WEBP_file(filename))
+		return PIC_FORMAT_WEBP;
 	SceUID file = sceIoOpen(filename, SCE_O_RDONLY, 0777);
 	uint16_t magic;
 	sceIoRead(file, &magic, 2);
