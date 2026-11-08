@@ -40,7 +40,8 @@
 static lua_State *L;
 
 char errorMex[1024];
-// lua-compat
+// lua-compat (LuaJIT 2.1 ships its own)
+#if LUAJIT_VERSION_NUM < 20100
 void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup) {
   luaL_checkstack(L, nup+1, "too many upvalues");
   for (; l->name != NULL; l++) {  /* fill the table with given functions */
@@ -53,6 +54,7 @@ void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup) {
   }
   lua_pop(L, nup);  /* remove upvalues */
 }
+#endif
 
 const char *runScript(const char* script, bool isStringBuffer)
 {
