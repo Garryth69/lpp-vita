@@ -69,7 +69,9 @@ int main()
 	unsigned short int vita_port = 0;
 
 	// Initializing graphics device
-	vita2d_init_advanced(0x1000000);
+	// per-frame vertex/uniform pool (main RAM, reset every frame): 4 MB is four times vita2d's default and far above
+	// what a frame of Otakio uses; 16 MB kept 12 MB of RAM idle
+	vita2d_init_advanced(0x400000);
 	vita2d_set_clear_color(RGBA8(0x00, 0x00, 0x00, 0xFF));
 	vita2d_set_vblank_wait(0);
 	clr_color = 0xFF000000;
