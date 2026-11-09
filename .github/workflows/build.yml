@@ -46,6 +46,29 @@ jobs:
         run: |
           cat "$VITASDK/version_info.txt"
           for pkg in $VDPM_PACKAGES; do vdpm "$pkg" > /dev/null; done
+
+      - name: libcurl against OpenSSL 1.1.1
+        # vdpm's curl is built against OpenSSL 1.0.2 (TLS 1.2 at most): rebuilt with the vitasdk/packages recipe
+        run: |
+          curl -sSL -o curl.tar.gz "https://github.com/curl/curl/releases/download/curl-8_17_0/curl-8.17.0.tar.gz"
+          echo "e8e74cdeefe5fb78b3ae6e90cd542babf788fa9480029cfcee6fd9ced42b7910  curl.tar.gz" | sha256sum -c -
+          tar -xzf curl.tar.gz -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/curl-8.17.0" && mkdir build && cd build
+          opts=(
+            -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" -DCMAKE_INSTALL_PREFIX="$VITASDK/arm-vita-eabi"
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_CURL_EXE=OFF -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF -DENABLE_IPV6=OFF
+            -DCURL_DISABLE_SOCKETPAIR=ON -DHAVE_FCNTL_O_NONBLOCK=OFF -DENABLE_THREADED_RESOLVER=OFF -DBUILD_LIBCURL_DOCS=OFF
+            -DBUILD_MISC_DOCS=OFF -DENABLE_CURL_MANUAL=OFF -DCURL_CA_BUNDLE="vs0:data/external/cert/CA_LIST.cer"
+            -DCURL_USE_LIBPSL=OFF -DCURL_USE_OPENSSL=ON -DCMAKE_REQUIRED_FLAGS=-pthread
+          )
+          cmake .. "${opts[@]}" > /dev/null
+          sed -i '/HAVE_PIPE2/d' lib/curl_config.h
+          make -j"$(nproc)" > /dev/null
+          make install > /dev/null
+          rm -f "$GITHUB_WORKSPACE/curl.tar.gz"
+
+      - name: Check TLS 1.3
+        run: |
           pc="$VITASDK/arm-vita-eabi/lib/pkgconfig"
           grep "^Version" "$pc/openssl.pc" "$pc/libcurl.pc"
           # TLS 1.3: OpenSSL 1.1.1 under a libcurl built against it

@@ -15,8 +15,8 @@ The resulting `eboot.bin` ships inside the Otakio VPK (GPL-3.0, same as lpp-vita
 ## Automatic build (GitHub Actions)
 
 `.github/workflows/build.yml` builds the engine on every push to `otakio` with the same toolchain as the published
-engine: the VitaSDK autobuild of 2025-03-11 (gcc 10.3, checked by SHA-256), the vdpm packages listed in the workflow
-and NOBORU's libvita2d at a fixed commit. Each run keeps `eboot_unsafe.bin`, `eboot_safe.bin`, `SHA256SUMS` and
+engine: the VitaSDK autobuild of 2025-03-11 (gcc 10.3, checked by SHA-256), the vdpm packages listed in the workflow, libcurl 8.17.0 rebuilt
+against OpenSSL 1.1.1, and NOBORU's libvita2d at a fixed commit. Each run keeps `eboot_unsafe.bin`, `eboot_safe.bin`, `SHA256SUMS` and
 `build-info.txt` (toolchain and library versions) as an artifact for 90 days. A tag named `engine-*` also publishes
 them as a release.
 
