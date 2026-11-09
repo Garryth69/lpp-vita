@@ -1024,20 +1024,36 @@ int ZipExtractCurrentFile(Zip *zip, int *nopath, const char *password, const cha
 		if(err != _ZIP_OK)
 			printf("Error with zipfile in ZipOpenCurrentFile\n");
 		
-		sprintf(extract_path,"%s/%s",path, writeFilename);
+		snprintf(extract_path, sizeof(extract_path), "%s/%s", path, writeFilename);
 		fout = fopen(extract_path, "wb");
 
-		if((fout == NULL) && ((*nopath) == 0) && (filenameWithoutPath != (char *)filenameinzip))
+		if(fout == NULL)
 		{
-			char c = *(filenameWithoutPath - 1);
-			*(filenameWithoutPath - 1) = '\0';
-			sceIoMkdir(writeFilename, 0777);
-			*(filenameWithoutPath - 1) = c;
-			fout = fopen(writeFilename, "wb");
+			// zips without entries for their folders (common in .cbz): create every parent folder of the full
+			// output path, then try again (the old code created the folder relative to the current directory)
+			char *slash;
+			for(slash = extract_path + strlen(path) + 1; *slash; slash++)
+			{
+				if(*slash == '/' || *slash == '\\')
+				{
+					char c = *slash;
+					*slash = '\0';
+					sceIoMkdir(extract_path, 0777);
+					*slash = c;
+				}
+			}
+			fout = fopen(extract_path, "wb");
 		}
 
 		if(fout == NULL)
-			printf("Error opening file\n");
+		{
+			// never write to a NULL FILE*: skip this file, keep extracting the others
+			printf("Error opening file %s\n", extract_path);
+			ZipCloseCurrentFile(zip);
+			if(buffer)
+				FreePatch(buffer);
+			return _ZIP_OK;
+		}
 			
 		void* extractBuffer = buffer;
 		unsigned int remainingSize = buffersize;
