@@ -14,12 +14,13 @@ The resulting `eboot.bin` ships inside the Otakio VPK (GPL-3.0, same as lpp-vita
 
 ## Automatic build (GitHub Actions)
 
-`.github/workflows/build.yml` builds the engine on every push to `otakio`, in the official VitaSDK Docker image
-(pinned by digest) with the vdpm packages listed below and NOBORU's libvita2d at a fixed commit. Each run keeps
-`eboot_unsafe.bin`, `eboot_safe.bin`, `SHA256SUMS` and `build-info.txt` (toolchain and library versions) as an
-artifact for 90 days. A tag named `engine-*` also publishes them as a release.
+`.github/workflows/build.yml` builds the engine on every push to `otakio` with the same toolchain as the published
+engine: the VitaSDK autobuild of 2025-03-11 (gcc 10.3, checked by SHA-256), the vdpm packages listed in the workflow
+and NOBORU's libvita2d at a fixed commit. Each run keeps `eboot_unsafe.bin`, `eboot_safe.bin`, `SHA256SUMS` and
+`build-info.txt` (toolchain and library versions) as an artifact for 90 days. A tag named `engine-*` also publishes
+them as a release.
 
-The build fails if OpenSSL 1.1.1 with TLS 1.3 is not what libcurl links against.
+The build fails if libcurl is not built against OpenSSL 1.1.1 (TLS 1.3).
 
 ## Requirements
 
