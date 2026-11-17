@@ -962,7 +962,10 @@ static const luaL_Reg Socket_functions[] = {
   {0, 0}
 };
 
+void luaHtml_init(lua_State *L);
+
 void luaNetwork_init(lua_State *L) {
+	luaHtml_init(L);
 	uint8_t GET_METHOD = SCE_HTTP_METHOD_GET;
 	uint8_t POST_METHOD = SCE_HTTP_METHOD_POST;
 	uint8_t HEAD_METHOD = SCE_HTTP_METHOD_HEAD;
@@ -1015,6 +1018,7 @@ void luaNetwork_init(lua_State *L) {
 	lua_pushboolean(L, 1); lua_setfield(L, -2, "gif");
 	lua_pushboolean(L, 1); lua_setfield(L, -2, "avif");
 	lua_pushboolean(L, 1); lua_setfield(L, -2, "imageLane");
+	lua_pushboolean(L, 1); lua_setfield(L, -2, "htmlNative");
 	lua_pushboolean(L, 1); lua_setfield(L, -2, "filters");
 	lua_setglobal(L, "OTAKIO_ENGINE");
 	lua_newtable(L);
