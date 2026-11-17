@@ -1012,6 +1012,10 @@ void luaNetwork_init(lua_State *L) {
 	lua_pushboolean(L, 1); lua_setfield(L, -2, "cookies");
 	lua_pushboolean(L, 1); lua_setfield(L, -2, "response");
 	lua_pushboolean(L, 1); lua_setfield(L, -2, "plainArgs");
+	lua_pushboolean(L, 1); lua_setfield(L, -2, "gif");
+	lua_pushboolean(L, 1); lua_setfield(L, -2, "avif");
+	lua_pushboolean(L, 1); lua_setfield(L, -2, "imageLane");
+	lua_pushboolean(L, 1); lua_setfield(L, -2, "filters");
 	lua_setglobal(L, "OTAKIO_ENGINE");
 	lua_newtable(L);
 	luaL_setfuncs(L, Socket_functions, 0);

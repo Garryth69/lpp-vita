@@ -11,7 +11,8 @@ typedef enum pic_format
 	PIC_FORMAT_JPEG = 2,
 	PIC_FORMAT_GIF = 3,
 	PIC_FORMAT_UNKNOWN = 4,
-	PIC_FORMAT_WEBP = 5
+	PIC_FORMAT_WEBP = 5,
+	PIC_FORMAT_AVIF = 6
 } pic_format;
 
 struct gif_texture{
@@ -31,5 +32,9 @@ void get_WEBP_resolution(const char *filename, int *dest_width, int *dest_height
 vita2d_texture *load_WEBP_file_downscaled(const char *filename, int level);
 vita2d_texture *load_WEBP_file_part(const char *filename, int x, int y, int width, int height);
 struct gif_texture* load_GIF_file(const char *filename);
+int is_AVIF_file(const char *filename);
+void get_AVIF_resolution(const char *filename, int *dest_width, int *dest_height);
+vita2d_texture *load_AVIF_file_downscaled(const char *filename, int level);
+vita2d_texture *load_AVIF_file_part(const char *filename, int x, int y, int width, int height);
 
 #endif

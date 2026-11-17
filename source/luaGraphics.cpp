@@ -66,10 +66,17 @@ struct rescaler{
 
 static bool isRescaling = false;
 static rescaler scaler;
-static char asyncPath[512];
+static char asyncPath[1024];
 static int asyncParams[4];
 static int asyncDownscaleLevel;
 static volatile uint8_t asyncMode = IMGLOAD_END;
+
+// Otakio: image decoding has its own async lane (Graphics.getAsyncState/getAsyncResult), apart from the System one used
+// by downloads, requests and zips, so the next page can download while the current one decodes.
+static volatile int imgAsyncResult = 1;
+static volatile uint8_t imgTaskNum = 0;
+static unsigned char* imgAsyncStr = NULL;
+static uint32_t imgAsyncSize = 0;
 
 #ifdef PARANOID
 static bool draw_state = false;
@@ -95,9 +102,9 @@ static int imgThread(unsigned int args, void* arg)
 	if (asyncMode == IMGLOAD_SIMPLE || asyncMode == IMGLOAD_PART) {
 		if (result == NULL)
 		{
-			async_task_num--;
+			imgTaskNum--;
 			asyncMode = IMGLOAD_END;
-			asyncResult = 1;
+			imgAsyncResult = 1;
 			sceKernelExitDeleteThread(0);
 			return 0;
 		}
@@ -107,26 +114,26 @@ static int imgThread(unsigned int args, void* arg)
 		char* buffer = (char*)malloc(16);
 		memset(buffer, 0, 16);
 		sprintf(buffer, "%i", ret);
-		asyncStrRes = (unsigned char*)buffer;
-		asyncResSize = strlen(buffer);
+		imgAsyncStr = (unsigned char*)buffer;
+		imgAsyncSize = strlen(buffer);
 	} else if (asyncMode == IMGLOAD_GIF) {
 		if (result2 == NULL)
 		{
-			async_task_num--;
+			imgTaskNum--;
 			asyncMode = IMGLOAD_END;
-			asyncResult = 1;
+			imgAsyncResult = 1;
 			sceKernelExitDeleteThread(0);
 			return 0;
 		}
 		char* buffer = (char*)malloc(16);
 		memset(buffer, 0, 16);
 		sprintf(buffer, "%i", result2);
-		asyncStrRes = (unsigned char*)buffer;
-		asyncResSize = strlen(buffer);
+		imgAsyncStr = (unsigned char*)buffer;
+		imgAsyncSize = strlen(buffer);
 	}
-	async_task_num--;
+	imgTaskNum--;
 	asyncMode = IMGLOAD_END;
-	asyncResult = 1;
+	imgAsyncResult = 1;
 	sceKernelExitDeleteThread(0);
 	return 0;
 }
@@ -352,16 +359,18 @@ static int lua_loadimgasync(lua_State *L){
 	#endif
 	char* text = (char*)(luaL_checkstring(L, 1));
 	asyncDownscaleLevel = argc>=2 ? luaL_checkinteger(L, 2) : 1;
-	sprintf(asyncPath, text);
-	async_task_num++;
+	snprintf(asyncPath, sizeof(asyncPath), "%s", text);
+	imgTaskNum++;
 	asyncMode = IMGLOAD_SIMPLE;
 	SceUID thd = sceKernelCreateThread("Image loader Thread", &imgThread, 0x10000100, 0x100000, 0, 0, NULL);
 	if (thd < 0)
 	{
-		asyncResult = -1;
+		imgTaskNum--;
+		asyncMode = IMGLOAD_END;
+		imgAsyncResult = -1;
 		return 0;
 	}
-	asyncResult = 0;
+	imgAsyncResult = 0;
 	sceKernelStartThread(thd, 0, NULL);
 	return 0;
 }
@@ -372,20 +381,22 @@ static int lua_loadimgpartasync(lua_State *L){
 	if (argc != 5) return luaL_error(L, "wrong number of arguments");
 	#endif
 	char* text = (char*)(luaL_checkstring(L, 1));
-	sprintf(asyncPath, text);
+	snprintf(asyncPath, sizeof(asyncPath), "%s", text);
 	asyncParams[0] = luaL_checknumber(L, 2);
 	asyncParams[1] = luaL_checknumber(L, 3);
 	asyncParams[2] = luaL_checknumber(L, 4);
 	asyncParams[3] = luaL_checknumber(L, 5);
-	async_task_num++;
+	imgTaskNum++;
 	asyncMode = IMGLOAD_PART;
 	SceUID thd = sceKernelCreateThread("Image loader Thread", &imgThread, 0x10000100, 0x100000, 0, 0, NULL);
 	if (thd < 0)
 	{
-		asyncResult = -1;
+		imgTaskNum--;
+		asyncMode = IMGLOAD_END;
+		imgAsyncResult = -1;
 		return 0;
 	}
-	asyncResult = 0;
+	imgAsyncResult = 0;
 	sceKernelStartThread(thd, 0, NULL);
 	return 0;
 }
@@ -805,16 +816,18 @@ static int lua_loadgifasync(lua_State *L){
 	#endif
 	char* text = (char*)(luaL_checkstring(L, 1));
 	asyncDownscaleLevel = 1;
-	sprintf(asyncPath, text);
-	async_task_num++;
+	snprintf(asyncPath, sizeof(asyncPath), "%s", text);
+	imgTaskNum++;
 	asyncMode = IMGLOAD_GIF;
 	SceUID thd = sceKernelCreateThread("Image loader Thread", &imgThread, 0x10000100, 0x100000, 0, 0, NULL);
 	if (thd < 0)
 	{
-		asyncResult = -1;
+		imgTaskNum--;
+		asyncMode = IMGLOAD_END;
+		imgAsyncResult = -1;
 		return 0;
 	}
-	asyncResult = 0;
+	imgAsyncResult = 0;
 	sceKernelStartThread(thd, 0, NULL);
 	return 0;
 }
@@ -850,7 +863,60 @@ static int lua_returngif(lua_State *L){
 }
 
 //Register our Graphics Functions
+// Graphics.filterImage(img, mode): rewrites a texture's pixels in place, right after it is decoded and before it is
+// drawn: "gray" (luma, BT.601 weights) or "invert". Returns false for a texture format it does not handle.
+static int lua_filterimg(lua_State *L){
+	lpp_texture* text = (lpp_texture*)(luaL_checkinteger(L, 1));
+	const char* mode = luaL_checkstring(L, 2);
+	if (text == NULL || text->magic != 0xABADBEEF || text->text == NULL) return luaL_error(L, "attempt to access wrong memory block type.");
+	vita2d_texture* t = text->text;
+	if (vita2d_texture_get_format(t) != SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR) {
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	bool gray = strcmp(mode, "gray") == 0;
+	bool invert = strcmp(mode, "invert") == 0;
+	if (!gray && !invert) return luaL_error(L, "unknown filter");
+	uint8_t* data = (uint8_t*)vita2d_texture_get_datap(t);
+	unsigned int w = vita2d_texture_get_width(t), h = vita2d_texture_get_height(t), stride = vita2d_texture_get_stride(t);
+	for (unsigned int y = 0; y < h; y++) {
+		uint8_t* p = data + (size_t)y * stride;
+		for (unsigned int x = 0; x < w; x++, p += 4) {
+			if (gray) {
+				uint8_t l = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
+				p[0] = p[1] = p[2] = l;
+			} else {
+				p[0] = 255 - p[0];
+				p[1] = 255 - p[1];
+				p[2] = 255 - p[2];
+			}
+		}
+	}
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
+// Graphics.getAsyncState(): 0 while an image is being decoded, 1 when done, -1 when it could not start
+static int lua_imgasyncstate(lua_State *L){
+	lua_pushinteger(L, imgAsyncResult);
+	return 1;
+}
+
+// Graphics.getAsyncResult(): the decoded image (as System.getAsyncResult gave it), once
+static int lua_imgasyncres(lua_State *L){
+	if (imgAsyncStr != NULL){
+		lua_pushlstring(L, (const char*)imgAsyncStr, imgAsyncSize);
+		free(imgAsyncStr);
+		imgAsyncStr = NULL;
+		return 1;
+	}
+	return 0;
+}
+
 static const luaL_Reg Graphics_functions[] = {
+  {"getAsyncState",       lua_imgasyncstate},
+  {"getAsyncResult",      lua_imgasyncres},
+  {"filterImage",         lua_filterimg},
   {"initBlend",           lua_init},
   {"termBlend",           lua_term},
   {"debugPrint",          lua_print},

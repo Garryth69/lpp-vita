@@ -63,8 +63,8 @@ bool messageStarted = false;
 static char messageText[512];
 
 static Zip* asyncHandle = NULL;
-static char asyncDest[256];
-static char asyncName[256];
+static char asyncDest[1024];
+static char asyncName[1024];
 static char asyncPass[64];
 static volatile uint8_t asyncMode = EXTRACT_END;
 volatile int asyncResult = 1;
@@ -287,8 +287,8 @@ static int lua_movefileasync(lua_State *L){
 	const char* src = luaL_checkstring(L, 1);
 	const char* dst = luaL_checkstring(L, 2);
 	int flags = (argc>=3) ? luaL_checkinteger(L, 3) : 0;
-	sprintf(asyncName, src);
-	sprintf(asyncDest, dst);
+	snprintf(asyncName, sizeof(asyncName), "%s", src);
+	snprintf(asyncDest, sizeof(asyncDest), "%s", dst);
 	asyncMode = flags;
 	movePath(src, dst, flags);
 	async_task_num++;
@@ -873,12 +873,14 @@ static int lua_ZipExtractAsync(lua_State *L) {
 	const char* Password = (argc == 3) ? luaL_checkstring(L, 3) : NULL;
 	sceIoMkdir(DirTe, 0777);
 	asyncHandle = ZipOpen(FileToExtract);
-	#ifndef SKIP_ERROR_HANDLING
-	if (asyncHandle == NULL) luaL_error(L, "error opening ZIP file.");
-	#endif
+	// a missing or broken zip ends the task as failed (the release build skipped this check and extracted from NULL)
+	if (asyncHandle == NULL) {
+		asyncResult = -1;
+		return 0;
+	}
 	asyncMode = FULL_EXTRACT;
-	sprintf(asyncDest, DirTe);
-	if (Password != NULL) sprintf(asyncPass, Password);
+	snprintf(asyncDest, sizeof(asyncDest), "%s", DirTe);
+	if (Password != NULL) snprintf(asyncPass, sizeof(asyncPass), "%s", Password);
 	else asyncPass[0] = 0;
 	async_task_num++;
 	SceUID thd = sceKernelCreateThread("Zip Extract Thread", &zipThread, 0x10000100, 0x100000, 0, 0, NULL);
@@ -929,13 +931,15 @@ static int lua_getfilefromzipasync(lua_State *L){
 	const char* Dest = luaL_checkstring(L, 3);
 	const char* Password = (argc == 4) ? luaL_checkstring(L, 4) : NULL;
 	asyncHandle = ZipOpen(FileToExtract);
-	#ifndef SKIP_ERROR_HANDLING
-	if (asyncHandle == NULL) luaL_error(L, "error opening ZIP file.");
-	#endif
+	// a missing or broken zip ends the task as failed (the release build skipped this check and extracted from NULL)
+	if (asyncHandle == NULL) {
+		asyncResult = -1;
+		return 0;
+	}
 	asyncMode = FILE_EXTRACT;
-	sprintf(asyncDest, Dest);
-	sprintf(asyncName, FileToExtract2);
-	if (Password != NULL) sprintf(asyncPass, Password);
+	snprintf(asyncDest, sizeof(asyncDest), "%s", Dest);
+	snprintf(asyncName, sizeof(asyncName), "%s", FileToExtract2);
+	if (Password != NULL) snprintf(asyncPass, sizeof(asyncPass), "%s", Password);
 	else asyncPass[0] = 0;
 	async_task_num++;
 	SceUID thd = sceKernelCreateThread("Zip Extract Thread", &zipThread, 0x10000100, 0x100000, 0, 0, NULL);
@@ -1096,7 +1100,7 @@ static int lua_setmsg(lua_State *L){
 	#ifndef SKIP_ERROR_HANDLING
 	if (buttons > 4 || buttons < 0) return luaL_error(L, "invalid buttons type argument.");
 	#endif
-	sprintf(messageText, text);
+	snprintf(messageText, sizeof(messageText), "%s", text);
 	SceMsgDialogParam param;
 	sceMsgDialogParamInit(&param);
 	if (progressbar){
@@ -1298,6 +1302,8 @@ static int lua_getpicformat(lua_State *L){
 		return 1;
 	} else if (format == PIC_FORMAT_WEBP) {
 		lua_pushstring(L, "webp");
+	} else if (format == PIC_FORMAT_AVIF) {
+		lua_pushstring(L, "avif");
 		return 1;
 	} else {
 		return 0;

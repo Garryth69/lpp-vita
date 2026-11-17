@@ -832,126 +832,106 @@ GIFStatus close_vita_gif(void *fd)
 	return GIF_OK;
 }
 
-vita2d_texture *load_GIF_file_part(const char *filename, int x, int y, int width, int height)
+// GIF: first frame through stb_image (bounds-checked). The old decoder wrote frames without checking their offsets
+// or palette indexes and took the whole app down (data abort in "Image loader Thread") on some GIF covers.
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_GIF
+#define STBI_NO_STDIO
+#define STBI_NO_HDR
+#define STBI_NO_LINEAR
+#define STBI_MAX_DIMENSIONS 16384
+#include "stb_image.h"
+
+static unsigned char *read_whole_file(const char *filename, int *size)
 {
-	if (x < 0 || y < 0 || width < 0 || height < 0)
+	SceUID fd = sceIoOpen(filename, SCE_O_RDONLY, 0777);
+	if (fd < 0) return NULL;
+	SceOff len = sceIoLseek(fd, 0, SCE_SEEK_END);
+	if (len <= 0 || len > 48 * 1024 * 1024)
 	{
+		sceIoClose(fd);
 		return NULL;
 	}
-	struct GIFHandler vita_gif_handler;
-	vita_gif_handler.chunk_size = 1 << 12;
-	vita_gif_handler.fd_size = sizeof(SceUID);
-	vita_gif_handler.init_f = open_vita_gif;
-	vita_gif_handler.read_f = read_vita_gif;
-	vita_gif_handler.term_f = close_vita_gif;
-	struct GIFObject gif;
-	vita2d_texture *texture = NULL;
-	if (OpenGIF(&vita_gif_handler, &gif, filename) == GIF_OK)
+	sceIoLseek(fd, 0, SCE_SEEK_SET);
+	unsigned char *buf = (unsigned char*)malloc((size_t)len);
+	if (buf == NULL)
 	{
-		if (x > gif.width || y > gif.height || x + width > gif.width || y + height > gif.height)
-		{
-			FreeGIF(&gif);
-			return NULL;
-		}
-		GIFStatus err = GetFrameGIF(&gif);
-		float scaleWidth = (float)width / MAX_TEXTURE_SIZE;
-		float scaleHeight = (float)height / MAX_TEXTURE_SIZE;
-		float scale = scaleWidth > scaleHeight ? scaleWidth : scaleHeight;
-		int scale_int = 1;
-		if (scale <= 1.f)
-		{
-			scale_int = 1;
-		}
-		else if (scale <= 2.f)
-		{
-			scale_int = 2;
-		}
-		else if (scale <= 4.f)
-		{
-			scale_int = 4;
-		}
-		else if (scale <= 8.f)
-		{
-			scale_int = 8;
-		}
-		else
-		{
-			FreeGIF(&gif);
-			return NULL;
-		}
-		if (err == GIF_OK)
-		{
-			texture = vita2d_create_empty_texture(width / scale_int, height / scale_int);
-			uint32_t *datap = (unsigned int *)vita2d_texture_get_datap(texture);
-			size_t stride = vita2d_texture_get_stride(texture) >> 2;
-			for (size_t i = 0, _i = x; i < width / scale_int; ++i, ++_i)
-			{
-				for (size_t j = 0, _j = y; j < height / scale_int; ++j, ++_j)
-				{
-					datap[j * stride + i] = gif.frame[(_j * scale_int) * gif.width + (_i * scale_int)];
-				}
-			}
-		}
-		FreeGIF(&gif);
+		sceIoClose(fd);
+		return NULL;
 	}
-	return texture;
+	int got = sceIoRead(fd, buf, (SceSize)len);
+	sceIoClose(fd);
+	if (got != (int)len)
+	{
+		free(buf);
+		return NULL;
+	}
+	*size = (int)len;
+	return buf;
+}
+
+static unsigned char *decode_gif_first_frame(const char *filename, int *w, int *h)
+{
+	int size = 0, comp = 0;
+	unsigned char *data = read_whole_file(filename, &size);
+	if (data == NULL) return NULL;
+	unsigned char *pixels = stbi_load_from_memory(data, size, w, h, &comp, 4);
+	free(data);
+	return pixels;
+}
+
+static int gif_scale(int width, int height, int level)
+{
+	float scaleWidth = (float)width / MAX_TEXTURE_SIZE;
+	float scaleHeight = (float)height / MAX_TEXTURE_SIZE;
+	float scale = scaleWidth > scaleHeight ? scaleWidth : scaleHeight;
+	scale = scale > level ? scale : level;
+	if (scale <= 1.f) return 1;
+	if (scale <= 2.f) return 2;
+	if (scale <= 4.f) return 4;
+	if (scale <= 8.f) return 8;
+	return 0;
+}
+
+static vita2d_texture *gif_texture_from(unsigned char *px, int w, int x, int y, int cw, int ch, int scale)
+{
+	if (cw / scale <= 0 || ch / scale <= 0) return NULL;
+	vita2d_texture *t = vita2d_create_empty_texture(cw / scale, ch / scale);
+	if (t == NULL) return NULL;
+	uint32_t *dst = (uint32_t*)vita2d_texture_get_datap(t);
+	size_t stride = vita2d_texture_get_stride(t) >> 2;
+	uint32_t *src = (uint32_t*)px;
+	for (int j = 0; j < ch / scale; ++j)
+		for (int i = 0; i < cw / scale; ++i)
+			dst[j * stride + i] = src[(size_t)(y + j * scale) * w + (x + i * scale)];
+	return t;
+}
+
+vita2d_texture *load_GIF_file_part(const char *filename, int x, int y, int width, int height)
+{
+	int w = 0, h = 0;
+	unsigned char *px = decode_gif_first_frame(filename, &w, &h);
+	if (px == NULL) return NULL;
+	vita2d_texture *t = NULL;
+	if (x >= 0 && y >= 0 && width > 0 && height > 0 && x + width <= w && y + height <= h)
+	{
+		int scale = gif_scale(width, height, 1);
+		if (scale) t = gif_texture_from(px, w, x, y, width, height, scale);
+	}
+	stbi_image_free(px);
+	return t;
 }
 
 vita2d_texture *load_GIF_file_downscaled(const char *filename, int level)
 {
-	struct GIFHandler vita_gif_handler;
-	vita_gif_handler.chunk_size = 1 << 12;
-	vita_gif_handler.fd_size = sizeof(SceUID);
-	vita_gif_handler.init_f = open_vita_gif;
-	vita_gif_handler.read_f = read_vita_gif;
-	vita_gif_handler.term_f = close_vita_gif;
-	struct GIFObject gif;
-	vita2d_texture *texture = NULL;
-	if (OpenGIF(&vita_gif_handler, &gif, filename) == GIF_OK)
-	{
-		GIFStatus err = GetFrameGIF(&gif);
-		float scaleWidth = (float)gif.width / MAX_TEXTURE_SIZE;
-		float scaleHeight = (float)gif.height / MAX_TEXTURE_SIZE;
-		float scale = scaleWidth > scaleHeight ? scaleWidth : scaleHeight;
-		scale = scale > level ? scale : level;
-		int scale_int = 1;
-		if (scale <= 1.f)
-		{
-			scale_int = 1;
-		}
-		else if (scale <= 2.f)
-		{
-			scale_int = 2;
-		}
-		else if (scale <= 4.f)
-		{
-			scale_int = 4;
-		}
-		else if (scale <= 8.f)
-		{
-			scale_int = 8;
-		}
-		else
-		{
-			FreeGIF(&gif);
-			return NULL;
-		}
-		if (err == GIF_OK)
-		{
-			texture = vita2d_create_empty_texture(gif.width / scale_int, gif.height / scale_int);
-			uint32_t *datap = (unsigned int *)vita2d_texture_get_datap(texture);
-			size_t stride = vita2d_texture_get_stride(texture) >> 2;
-			for (size_t i = 0; i < gif.width / scale_int; ++i)
-			{
-				for (size_t j = 0; j < gif.height / scale_int; ++j)
-				{
-					datap[j * stride + i] = gif.frame[(j * scale_int) * gif.width + (i * scale_int)];
-				}
-			}
-		}
-		FreeGIF(&gif);
-	}
-	return texture;
+	int w = 0, h = 0;
+	unsigned char *px = decode_gif_first_frame(filename, &w, &h);
+	if (px == NULL) return NULL;
+	vita2d_texture *t = NULL;
+	int scale = gif_scale(w, h, level);
+	if (scale) t = gif_texture_from(px, w, 0, 0, w, h, scale);
+	stbi_image_free(px);
+	return t;
 }
 
 void get_PNG_resolution(const char *filename, int *dest_width, int *dest_height)
@@ -1078,6 +1058,11 @@ void get_PIC_resolution(const char *filename, int *dest_width, int *dest_height)
 		get_WEBP_resolution(filename, dest_width, dest_height);
 		return;
 	}
+	if (is_AVIF_file(filename))
+	{
+		get_AVIF_resolution(filename, dest_width, dest_height);
+		return;
+	}
 	SceUID file = sceIoOpen(filename, SCE_O_RDONLY, 0777);
 	uint16_t magic;
 	sceIoRead(file, &magic, 2);
@@ -1097,6 +1082,8 @@ vita2d_texture *load_PIC_file(const char *filename, int x, int y, int width, int
 {
 	if (is_WEBP_file(filename))
 		return load_WEBP_file_part(filename, x, y, width, height);
+	if (is_AVIF_file(filename))
+		return load_AVIF_file_part(filename, x, y, width, height);
 	SceUID file = sceIoOpen(filename, SCE_O_RDONLY, 0777);
 	uint16_t magic;
 	sceIoRead(file, &magic, 2);
@@ -1116,6 +1103,8 @@ vita2d_texture *load_PIC_file_downscaled(const char *filename, int level)
 {
 	if (is_WEBP_file(filename))
 		return load_WEBP_file_downscaled(filename, level);
+	if (is_AVIF_file(filename))
+		return load_AVIF_file_downscaled(filename, level);
 	SceUID file = sceIoOpen(filename, SCE_O_RDONLY, 0777);
 	uint16_t magic;
 	sceIoRead(file, &magic, 2);
@@ -1135,6 +1124,8 @@ pic_format get_PIC_format(const char *filename)
 {
 	if (is_WEBP_file(filename))
 		return PIC_FORMAT_WEBP;
+	if (is_AVIF_file(filename))
+		return PIC_FORMAT_AVIF;
 	SceUID file = sceIoOpen(filename, SCE_O_RDONLY, 0777);
 	uint16_t magic;
 	sceIoRead(file, &magic, 2);

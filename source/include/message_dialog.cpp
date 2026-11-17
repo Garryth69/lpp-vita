@@ -142,7 +142,7 @@ int sceMsgDialogInit(const SceMsgDialogParam *param) {
 	float len = 0.0f;
 	if (spc != NULL){
 		spc[0] = 0;
-		sprintf(buf, str);
+		snprintf(buf, sizeof(buf), "%s", str);
 		spc[0] = ' ';
 		len = vita2d_pgf_text_width(debug_font, 1.0f, buf);
 	}
@@ -152,7 +152,7 @@ int sceMsgDialogInit(const SceMsgDialogParam *param) {
 			str = next_newline;
 			next_newline = strstr(str + 1, "\n");
 			spc[0] = 0;
-			sprintf(buf, str);
+			snprintf(buf, sizeof(buf), "%s", str);
 			spc[0] = ' ';
 			len = vita2d_pgf_text_width(debug_font, 1.0f, buf);
 			lines++;
@@ -161,7 +161,7 @@ int sceMsgDialogInit(const SceMsgDialogParam *param) {
 			spc = strstr(spc + 1, " ");
 			if (spc != NULL){
 				spc[0] = 0;
-				sprintf(buf, str);
+				snprintf(buf, sizeof(buf), "%s", str);
 				spc[0] = ' ';
 				len = vita2d_pgf_text_width(debug_font, 1.0f, buf);
 			}
@@ -171,7 +171,7 @@ int sceMsgDialogInit(const SceMsgDialogParam *param) {
 			spc = strstr(str, " ");
 			if (spc != NULL){
 				spc[0] = 0;
-				sprintf(buf, str);
+				snprintf(buf, sizeof(buf), "%s", str);
 				spc[0] = ' ';
 				len = vita2d_pgf_text_width(debug_font, 1.0f, buf);
 			}
