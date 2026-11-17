@@ -67,6 +67,55 @@ jobs:
           make install > /dev/null
           rm -f "$GITHUB_WORKSPACE/curl.tar.gz"
 
+      - name: Check gzip in libcurl
+        # Otakio asks for compressed transfers (CURLOPT_ACCEPT_ENCODING): libcurl must be built with zlib
+        run: |
+          "$VITASDK/bin/arm-vita-eabi-nm" "$VITASDK/arm-vita-eabi/lib/libcurl.a" 2>/dev/null | grep -q " U inflateInit2_" \
+            || { echo "libcurl was built without zlib"; exit 1; }
+
+      - name: dav1d and libavif (AVIF pages)
+        run: |
+          pip install --quiet meson==1.6.1 ninja==1.11.1.3
+          cd "$RUNNER_TEMP"
+          curl -sSL -o dav1d.tar.gz https://code.videolan.org/videolan/dav1d/-/archive/1.5.4/dav1d-1.5.4.tar.gz
+          echo "a1d5b63d2d38ec9bd03acf643caa51fa22edd1e89c5a109c4807717216bbec07  dav1d.tar.gz" | sha256sum -c -
+          tar -xzf dav1d.tar.gz
+          cat > vita-cross.txt <<CROSS
+          [binaries]
+          c = '$VITASDK/bin/arm-vita-eabi-gcc'
+          cpp = '$VITASDK/bin/arm-vita-eabi-g++'
+          ar = '$VITASDK/bin/arm-vita-eabi-ar'
+          strip = '$VITASDK/bin/arm-vita-eabi-strip'
+          pkg-config = '$VITASDK/bin/arm-vita-eabi-pkg-config'
+          [built-in options]
+          c_args = ['-mcpu=cortex-a9', '-mfpu=neon', '-mfloat-abi=hard', '-O2', '-ffunction-sections', '-fdata-sections']
+          [host_machine]
+          system = 'vita'
+          cpu_family = 'arm'
+          cpu = 'cortex-a9'
+          endian = 'little'
+          CROSS
+          sed -i 's/^          //' vita-cross.txt
+          # static, without PIC: the Vita executable format has no GOT relocations
+          meson setup dav1d-1.5.4/build dav1d-1.5.4 --cross-file vita-cross.txt --prefix="$VITASDK/arm-vita-eabi" \
+            --default-library=static --buildtype=release -Db_staticpic=false -Denable_tools=false -Denable_tests=false \
+            -Denable_examples=false -Dbitdepths=8 -Dlogging=false > /dev/null
+          ninja -C dav1d-1.5.4/build install > /dev/null
+          curl -sSL -o libavif.tar.gz https://github.com/AOMediaCodec/libavif/archive/refs/tags/v1.4.2.tar.gz
+          echo "2b645287340ba5a631d268b551dc2d72bd73ac33335962dd36dcdb6d8366921d  libavif.tar.gz" | sha256sum -c -
+          tar -xzf libavif.tar.gz
+          sed -i 's/^set(CMAKE_POSITION_INDEPENDENT_CODE ON)/set(CMAKE_POSITION_INDEPENDENT_CODE OFF)/' libavif-1.4.2/CMakeLists.txt
+          cmake -S libavif-1.4.2 -B libavif-1.4.2/build -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
+            -DCMAKE_INSTALL_PREFIX="$VITASDK/arm-vita-eabi" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DAVIF_CODEC_DAV1D=SYSTEM -DAVIF_LIBYUV=OFF -DAVIF_LIBSHARPYUV=OFF -DAVIF_LIBXML2=OFF -DAVIF_BUILD_APPS=OFF \
+            -DAVIF_BUILD_TESTS=OFF -DAVIF_JPEG=OFF -DAVIF_ZLIBPNG=OFF -DCMAKE_C_FLAGS="-mcpu=cortex-a9 -mfpu=neon -O2" > /dev/null
+          make -C libavif-1.4.2/build -j"$(nproc)" install > /dev/null
+          for lib in libdav1d.a libavif.a; do
+            if "$VITASDK/bin/arm-vita-eabi-readelf" -r "$VITASDK/arm-vita-eabi/lib/$lib" | grep -qE "R_ARM_(BASE_PREL|GOT_BREL)"; then
+              echo "$lib has GOT relocations"; exit 1
+            fi
+          done
+
       - name: Check TLS 1.3
         run: |
           pc="$VITASDK/arm-vita-eabi/lib/pkgconfig"
@@ -80,6 +129,8 @@ jobs:
         run: |
           git clone --quiet "$LIBVITA2D_REPO" .deps/libvita2d
           git -C .deps/libvita2d checkout --quiet "$LIBVITA2D_COMMIT"
+          # Otakio: font files read through a block cache (see the patch header)
+          git -C .deps/libvita2d apply "$GITHUB_WORKSPACE/libvita2d-otakio.patch"
 
       - name: Build
         run: |
@@ -91,7 +142,8 @@ jobs:
             echo "vitasdk: $VITASDK_URL (sha256 $VITASDK_SHA256)"
             sed -n 1p "$VITASDK/version_info.txt"
             echo "gcc: $(arm-vita-eabi-gcc -dumpversion)"
-            echo "libvita2d: $LIBVITA2D_REPO @ $LIBVITA2D_COMMIT"
+            echo "libvita2d: $LIBVITA2D_REPO @ $LIBVITA2D_COMMIT + libvita2d-otakio.patch"
+            echo "dav1d: 1.5.4, libavif: 1.4.2"
             grep "^Version" "$pc/openssl.pc" | sed "s/^Version/openssl/"
             grep "^Version" "$pc/libcurl.pc" | sed "s/^Version/libcurl/"
           } > build-info.txt
@@ -107,6 +159,7 @@ jobs:
           path: |
             eboot_unsafe.bin
             eboot_safe.bin
+            lpp-vita.elf.unstripped.elf
             SHA256SUMS
             build-info.txt
           retention-days: 90
@@ -127,4 +180,4 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Otakio engine $GITHUB_REF_NAME" \
             --notes "eboot.bin built by the Build engine workflow from $GITHUB_SHA. See build-info.txt for the toolchain." \
-            eboot_unsafe.bin eboot_safe.bin SHA256SUMS build-info.txt
+            eboot_unsafe.bin eboot_safe.bin lpp-vita.elf.unstripped.elf SHA256SUMS build-info.txt
