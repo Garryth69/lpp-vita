@@ -1302,6 +1302,7 @@ static int lua_getpicformat(lua_State *L){
 		return 1;
 	} else if (format == PIC_FORMAT_WEBP) {
 		lua_pushstring(L, "webp");
+		return 1;
 	} else if (format == PIC_FORMAT_AVIF) {
 		lua_pushstring(L, "avif");
 		return 1;

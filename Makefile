@@ -24,7 +24,7 @@ CFLAGS  = -I$(VITASDK)/arm-vita-eabi/include/opus -D_GNU_SOURCE -include string.
 		-DHAVE_LIBSNDFILE -DHAVE_MPG123 -DWANT_FMMIDI=1 -DWANT_FASTAIFF \
 		-DUSE_AUDIO_RESAMPLER -DHAVE_OGGVORBIS -DHAVE_OPUSFILE \
 		-DSQLITE_OS_OTHER=1 -DSQLITE_TEMP_STORE=3 -DSQLITE_THREADSAFE=0
-CXXFLAGS  = $(CFLAGS) -fno-exceptions -std=gnu++11 -fpermissive
+CXXFLAGS  = $(CFLAGS) -fno-exceptions -std=gnu++11 -fpermissive -Werror=return-type
 ASFLAGS = $(CFLAGS)
 
 
