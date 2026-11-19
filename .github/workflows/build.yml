@@ -181,3 +181,22 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Otakio engine $GITHUB_REF_NAME" \
             --notes "eboot.bin built by the Build engine workflow from $GITHUB_SHA. See build-info.txt for the toolchain." \
             eboot_unsafe.bin eboot_safe.bin lpp-vita.elf.unstripped.elf SHA256SUMS build-info.txt
+
+  # Dependabot's updates of the pinned actions merge themselves once the job above passes (minor and patch versions
+  # only: a major version waits for a person), so the workflows keep working while nobody maintains the repository
+  automerge:
+    needs: build
+    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+      - if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge "$PR" --squash --delete-branch --repo "$REPO"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
